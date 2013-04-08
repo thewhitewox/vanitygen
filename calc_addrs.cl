@@ -154,6 +154,17 @@
  * - bn_usub/bn_usub_p
  */
 
+/* Workaround horrible bugs in Catalyst 12.x */
+#if defined(CATALYST_WORKAROUND)
+#define LT(x, y) (((x) <= (y)) && ((x) != (y)))
+#define GT(x,y) (((x) >= (y)) && ((x) != (y)))
+#define EQ(x, y) ((x)==(y))
+#else
+#define LT(x,y) ((x)<(y))
+#define GT(x,y) ((x)>(y))
+#define EQ(x, y) ((x)==(y))
+#endif
+
 typedef uint bn_word;
 #define BN_NBITS 256
 #define BN_WSHIFT 5
@@ -269,7 +280,7 @@ bn_ucmp_ge(bignum *a, bignum *b)
 		if (a->d[i] < b->d[i]) l |= (1 << i);	\
 		if (a->d[i] > b->d[i]) g |= (1 << i);
 	bn_unroll_reverse(bn_ucmp_ge_inner1);
-	return (l > g) ? 0 : 1;
+	return GT(l, g) ? 0 : 1;
 }
 
 int
@@ -281,7 +292,7 @@ bn_ucmp_ge_c(bignum *a, __constant bn_word *b)
 		if (a->d[i] < b[i]) l |= (1 << i);	\
 		if (a->d[i] > b[i]) g |= (1 << i);
 	bn_unroll_reverse(bn_ucmp_ge_c_inner1);
-	return (l > g) ? 0 : 1;
+	return GT(l, g) ? 0 : 1;
 }
 
 /*
@@ -304,13 +315,13 @@ bn_neg(bignum *n)
 
 #define bn_add_word(r, a, b, t, c) do {		\
 		t = a + b;			\
-		c = (t < a) ? 1 : 0;		\
+		c = LT(t, a) ? 1 : 0;		\
 		r = t;				\
 	} while (0)
 
 #define bn_addc_word(r, a, b, t, c) do {			\
 		t = a + b + c;					\
-		c = (t < a) ? 1 : ((c & (t == a)) ? 1 : 0);	\
+		c = LT(t, a) ? 1 : ((c & EQ(t,a)) ? 1 : 0);	\
 		r = t;						\
 	} while (0)
 
@@ -338,14 +349,14 @@ bn_uadd_words_c_seq(bn_word *r, bn_word *a, __constant bn_word *b)
 
 #define bn_sub_word(r, a, b, t, c) do {		\
 		t = a - b;			\
-		c = (a < b) ? 1 : 0;		\
+		c = LT(a, b) ? 1 : 0;		\
 		r = t;				\
 	} while (0)
 
 #define bn_subb_word(r, a, b, t, c) do {	\
 		t = a - (b + c);		\
 		c = (!(a) && c) ? 1 : 0;	\
-		c |= (a < b) ? 1 : 0;		\
+		c |= LT(a, b) ? 1 : 0;		\
 		r = t;				\
 	} while (0)
 
@@ -385,7 +396,7 @@ bn_uadd_words_vliw(bn_word *r, bn_word *a, bn_word *b)
 		x.d[i] = a[i] + b[i];
 
 #define bn_uadd_words_vliw_inner2(i)			\
-		c |= (a[i] > x.d[i]) ? (1 << i) : 0;	\
+		c |= GT(a[i], x.d[i]) ? (1 << i) : 0;	\
 		cp |= (!~x.d[i]) ? (1 << i) : 0;
 
 #define bn_uadd_words_vliw_inner3(i)		\
@@ -507,22 +518,21 @@ bn_mod_lshift1(bignum *bn)
 #define bn_mul_word(r, a, w, c, p, s) do { \
 		r = (a * w) + c;	   \
 		p = mul_hi(a, w);	   \
-		c = (r < c) ? p + 1 : p;   \
+		c = LT(r, c) ? p + 1 : p;   \
 	} while (0)
 
 #define bn_mul_add_word(r, a, w, c, p, s) do {	\
 		s = r + c;			\
 		p = mul_hi(a, w);		\
 		r = (a * w) + s;		\
-		c = (s < c) ? p + 1 : p;	\
-		if (r < s) c++;			\
+		c = LT(s, c) ? p + 1 : p;	\
+		c += LT(r, s);		\
 	} while (0)
 void
 bn_mul_mont(bignum *r, bignum *a, bignum *b)
 {
 	bignum t;
 	bn_word tea, teb, c, p, s, m;
-
 #if !defined(VERY_EXPENSIVE_BRANCHES)
 	int q;
 #endif
@@ -542,7 +552,7 @@ bn_mul_mont(bignum *r, bignum *a, bignum *b)
 		t.d[j-1] = t.d[j];
 	bn_unroll_sf(bn_mul_mont_inner2);
 	t.d[BN_NWORDS-1] = tea + c;
-	tea = teb + ((t.d[BN_NWORDS-1] < c) ? 1 : 0);
+	tea = teb + (LT(t.d[BN_NWORDS-1], c) ? 1 : 0);
 
 #define bn_mul_mont_inner3_1(i, j)					\
 		bn_mul_add_word(t.d[j], a->d[j], b->d[i], c, p, s);
@@ -553,13 +563,13 @@ bn_mul_mont(bignum *r, bignum *a, bignum *b)
 	c = 0;						 \
 	bn_unroll_arg(bn_mul_mont_inner3_1, i);		 \
 	tea += c;					 \
-	teb = ((tea < c) ? 1 : 0);			 \
+	teb = (LT(tea, c) ? 1 : 0);			 \
 	c = 0;						 \
 	m = t.d[0] * mont_n0[0];			 \
 	bn_mul_add_word(t.d[0], modulus[0], m, c, p, s); \
 	bn_unroll_arg_sf(bn_mul_mont_inner3_2, i);	 \
 	t.d[BN_NWORDS-1] = tea + c;			 \
-	tea = teb + ((t.d[BN_NWORDS-1] < c) ? 1 : 0);
+	tea = teb + (LT(t.d[BN_NWORDS-1], c) ? 1 : 0);
 
 	/*
 	 * The outer loop here is quite long, and we won't unroll it
@@ -612,11 +622,11 @@ bn_from_mont(bignum *rb, bignum *b)
 
 #if !defined(VERY_EXPENSIVE_BRANCHES)
 #define bn_from_mont_inner3_2(i)		\
-	if (r[BN_NWORDS + i] < c)		\
+	if (LT(r[BN_NWORDS + i], c))		\
 		r[BN_NWORDS + i + 1] += 1;
 #else
 #define bn_from_mont_inner3_2(i)				\
-	r[BN_NWORDS + i + 1] += (r[BN_NWORDS + i] < c) ? 1 : 0;
+	r[BN_NWORDS + i + 1] += LT(r[BN_NWORDS + i], c) ? 1 : 0;
 #endif
 
 #define bn_from_mont_inner3(i)			 \
@@ -1419,3 +1429,5 @@ hash_ec_point_search_prefix(__global uint *found,
 		}
 	}
 }
+
+

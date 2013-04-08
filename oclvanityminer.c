@@ -766,6 +766,7 @@ usage(const char *name)
 "              Form: <platform>:<devicenumber>[,<options>]\n"
 "              Example: 0:0,grid=1024x1024\n"
 "-S            Safe mode, disable OpenCL loop unrolling optimizations\n"
+"-C            Do not use workarounds around AMD Catalyst 12.x-13.x bugs\n"
 "-w <worksize> Set work items per thread in a work unit\n"
 "-t <threads>  Set target thread count per multiprocessor\n"
 "-g <x>x<y>    Set grid size\n"
@@ -792,6 +793,7 @@ main(int argc, char **argv)
 	int invsize = 0;
 	int verify_mode = 0;
 	int safe_mode = 0;
+	int good_catalyst = 0;
 
 	char *devstrs[MAX_DEVS];
 	int ndevstrs = 0;
@@ -820,7 +822,7 @@ main(int argc, char **argv)
 	}
 
 	while ((opt = getopt(argc, argv,
-			     "u:a:vqp:d:w:t:g:b:VD:Sh?i:")) != -1) {
+			     "u:a:vqp:d:w:t:g:b:VD:SCh?i:")) != -1) {
 		switch (opt) {
 		case 'u':
 			url = optarg;
@@ -897,6 +899,9 @@ main(int argc, char **argv)
 		case 'S':
 			safe_mode = 1;
 			break;
+		case 'C':
+			good_catalyst = 1;
+			break;
 		case 'D':
 			if (ndevstrs >= MAX_DEVS) {
 				fprintf(stderr,
@@ -956,7 +961,7 @@ main(int argc, char **argv)
 		for (opt = 0; opt < ndevstrs; opt++) {
 			vocp = vg_ocl_context_new_from_devstr(vcp, devstrs[opt],
 							      safe_mode,
-							      verify_mode);
+							      verify_mode, good_catalyst);
 			if (!vocp) {
 				fprintf(stderr,
 				"Could not open device '%s', ignoring\n",
@@ -969,7 +974,7 @@ main(int argc, char **argv)
 		vocp = vg_ocl_context_new(vcp, platformidx, deviceidx,
 					  safe_mode, verify_mode,
 					  worksize, nthreads,
-					  nrows, ncols, invsize);
+					  nrows, ncols, invsize, good_catalyst);
 		if (vocp)
 			res++;
 	}

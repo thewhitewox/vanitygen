@@ -399,6 +399,7 @@ enum {
 	VG_OCL_NV_VERBOSE           = (1 << 5),
 	VG_OCL_BROKEN               = (1 << 6),
 	VG_OCL_NO_BINARIES          = (1 << 7),
+	VG_OCL_CATALYST_WORKAROUND  = (1 << 8),
 
 	VG_OCL_OPTIMIZATIONS        = (VG_OCL_DEEP_PREPROC_UNROLL |
 				       VG_OCL_PRAGMA_UNROLL |
@@ -412,7 +413,7 @@ static int
 vg_ocl_get_quirks(vg_ocl_context_t *vocp)
 {
 	uint32_t vend;
-	const char *dvn;
+	const char *dvn, *drv;
 	unsigned int quirks = 0;
 
 	quirks |= VG_OCL_DEEP_PREPROC_UNROLL;
@@ -452,6 +453,10 @@ vg_ocl_get_quirks(vg_ocl_context_t *vocp)
 				quirks |= VG_OCL_NO_BINARIES;
 			}
 		}
+		drv = vg_ocl_device_getstr(vocp->voc_ocldid, CL_DRIVER_VERSION);
+		if (drv && (strstr(drv, "1112") || strstr(drv, "1113")))
+			quirks |= VG_OCL_CATALYST_WORKAROUND;
+			
 		break;
 	default:
 		break;
@@ -865,7 +870,7 @@ vg_ocl_context_callback(const char *errinfo,
 
 static int
 vg_ocl_init(vg_context_t *vcp, vg_ocl_context_t *vocp, cl_device_id did,
-	    int safe_mode)
+	    int safe_mode, int catalystnotbuggy)
 {
 	cl_int ret;
 	char optbuf[128];
@@ -913,8 +918,16 @@ vg_ocl_init(vg_context_t *vcp, vg_ocl_context_t *vocp, cl_device_id did,
 		return 0;
 	}
 
-	if (safe_mode)
-		vocp->voc_quirks &= ~VG_OCL_OPTIMIZATIONS;
+	if (catalystnotbuggy)
+		vocp->voc_quirks &= ~VG_OCL_CATALYST_WORKAROUND;
+
+	if (safe_mode) {
+		if (vocp->voc_quirks & VG_OCL_CATALYST_WORKAROUND) {
+			fprintf(stderr, "Can't use safe mode with broken catalyst driver\n");
+		} else {
+			vocp->voc_quirks &= ~VG_OCL_OPTIMIZATIONS;
+		}
+	}
 
 	end = 0;
 	optbuf[end] = '\0';
@@ -933,6 +946,9 @@ vg_ocl_init(vg_context_t *vcp, vg_ocl_context_t *vocp, cl_device_id did,
 	if (vocp->voc_quirks & VG_OCL_AMD_BFI_INT)
 		end += snprintf(optbuf + end, sizeof(optbuf) - end,
 				"-DAMD_BFI_INT ");
+	if (vocp->voc_quirks & VG_OCL_CATALYST_WORKAROUND)
+		end += snprintf(optbuf + end, sizeof(optbuf) - end,
+				"-DCATALYST_WORKAROUND ");
 	if (vocp->voc_quirks & VG_OCL_NV_VERBOSE)
 		end += snprintf(optbuf + end, sizeof(optbuf) - end,
 				"-cl-nv-verbose ");
@@ -1627,6 +1643,9 @@ vg_ocl_config_pattern(vg_ocl_context_t *vocp)
 {
 	vg_context_t *vcp = vocp->base.vxc_vc;
 	int i;
+
+	if (vocp->voc_quirks & VG_OCL_CATALYST_WORKAROUND)
+		return vg_ocl_gethash_init(vocp);
 
 	i = vg_context_hash160_sort(vcp, NULL);
 	if (i > 0) {
@@ -2478,7 +2497,7 @@ vg_ocl_context_t *
 vg_ocl_context_new(vg_context_t *vcp,
 		   int platformidx, int deviceidx, int safe_mode, int verify,
 		   int worksize, int nthreads, int nrows, int ncols,
-		   int invsize)
+		   int invsize, int catalystnotbuggy)
 {
 	cl_device_id did;
 	int round, full_threads, wsmult;
@@ -2496,7 +2515,7 @@ vg_ocl_context_new(vg_context_t *vcp,
 		return NULL;
 
 	/* Open the device and compile the kernel */
-	if (!vg_ocl_init(vcp, vocp, did, safe_mode)) {
+	if (!vg_ocl_init(vcp, vocp, did, safe_mode, catalystnotbuggy)) {
 		free(vocp);
 		return NULL;
 	}
@@ -2642,7 +2661,7 @@ out_fail:
 
 vg_ocl_context_t *
 vg_ocl_context_new_from_devstr(vg_context_t *vcp, const char *devstr,
-			       int safemode, int verify)
+			       int safemode, int verify, int catalystnotbuggy)
 {
 	int platformidx, deviceidx;
 	int worksize = 0, nthreads = 0, nrows = 0, ncols = 0, invsize = 0;
@@ -2726,7 +2745,7 @@ vg_ocl_context_new_from_devstr(vg_context_t *vcp, const char *devstr,
 
 	return vg_ocl_context_new(vcp, platformidx, deviceidx, safemode,
 				  verify, worksize, nthreads, nrows, ncols,
-				  invsize);
+				  invsize, catalystnotbuggy);
 }
 
 
