@@ -1,0 +1,27 @@
+#!/bin/bash
+if [ $(uname -m) = "x86_64" ]; then
+	BITS=64
+else
+	BITS=32
+fi
+
+PWD=$(pwd)
+BASE=$(realpath "$(dirname $1)")
+LD_PRELOAD=$BASE/libamdocl$BITS.so
+if [ ! -f "$LD_PRELOAD" ]; then
+	cd /tmp
+	wget -c http://www2.ati.com/drivers/linux/amd-driver-installer-catalyst-12.10-x86.x86_64.zip -O catalyst-12.10.zip
+	if [ ! -f "amd-driver-installer-catalyst-12.10-x86.x86_64.run" ]; then
+		unzip catalyst-12.10.zip
+		if [ $? != 0 ]; then
+			echo "'unzip' failed (is it installed?)"
+			exit 1
+		fi
+	fi
+	cd "$BASE"
+	dd if=/tmp/amd-driver-installer-catalyst-12.10-x86.x86_64.run bs=12384 skip=1 | tar -zvxf - arch/x86_64/usr/lib64/libamdocl64.so arch/x86/usr/lib/libamdocl32.so --strip=4
+	rm -f /tmp/amd-driver-installer-catalyst-12.10-x86.x86_64.run
+fi
+cd "$PWD"
+export LD_PRELOAD
+exec $*
