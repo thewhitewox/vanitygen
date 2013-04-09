@@ -454,7 +454,7 @@ vg_ocl_get_quirks(vg_ocl_context_t *vocp)
 			}
 		}
 		drv = vg_ocl_device_getstr(vocp->voc_ocldid, CL_DRIVER_VERSION);
-		if (drv && (strstr(drv, "1112") || strstr(drv, "1113")))
+		if (drv && strstr(drv, "1113"))
 			quirks |= VG_OCL_CATALYST_WORKAROUND;
 			
 		break;
@@ -1643,9 +1643,6 @@ vg_ocl_config_pattern(vg_ocl_context_t *vocp)
 {
 	vg_context_t *vcp = vocp->base.vxc_vc;
 	int i;
-
-	if (vocp->voc_quirks & VG_OCL_CATALYST_WORKAROUND)
-		return vg_ocl_gethash_init(vocp);
 
 	i = vg_context_hash160_sort(vcp, NULL);
 	if (i > 0) {
