@@ -454,7 +454,7 @@ vg_ocl_get_quirks(vg_ocl_context_t *vocp)
 			}
 		}
 		drv = vg_ocl_device_getstr(vocp->voc_ocldid, CL_DRIVER_VERSION);
-		if (drv && strstr(drv, "1113"))
+		if (drv && (strstr(drv, "1113") || strstr(drv, "1112") || strstr(drv, "1111")))
 			quirks |= VG_OCL_CATALYST_WORKAROUND;
 			
 		break;
